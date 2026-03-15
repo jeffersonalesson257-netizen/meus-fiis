@@ -2,5 +2,5 @@ streamlit
 pandas
 yfinance
 plotly
-openpyxl
 numpy
+openpyxl
