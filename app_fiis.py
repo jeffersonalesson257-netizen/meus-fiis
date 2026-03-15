@@ -3,12 +3,26 @@ import pandas as pd
 import yfinance as yf
 import plotly.express as px
 import plotly.graph_objects as go
+from datetime import datetime
 
-# Configuração da Página
-st.set_page_config(page_title="Jefferson FII Intelligence Pro", layout="wide")
+# 1. CONFIGURAÇÃO DE UI/UX PREMIUM
+st.set_page_config(
+    page_title="Jefferson Wealth Management",
+    page_icon="💰",
+    layout="wide"
+)
 
-# --- 1. BANCO DE DADOS DA CARTEIRA ---
-# Mantenha seus ativos atualizados aqui
+# Estilização CSS para cartões e fontes
+st.markdown("""
+    <style>
+    .main { background-color: #f4f7f6; }
+    [data-testid="stMetricValue"] { font-size: 28px !important; color: #004b23 !important; }
+    .stDataFrame { border-radius: 10px; overflow: hidden; }
+    .css-1r6slb0 { background-color: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    </style>
+""", unsafe_allow_html=True)
+
+# 2. BANCO DE DADOS DA CARTEIRA (Edite aqui seus ativos)
 meus_investimentos = {
     'Ticker': ['HGLG11', 'KNRI11', 'XPML11', 'BTLG11', 'VISC11', 'MXRF11'],
     'Quantidade': [10, 5, 12, 15, 8, 100],
@@ -16,117 +30,124 @@ meus_investimentos = {
     'Setor': ['Logística', 'Híbrido', 'Shopping', 'Logística', 'Shopping', 'Papel']
 }
 
-# --- 2. FUNÇÕES DE INTELIGÊNCIA ---
+# 3. MOTOR DE PROCESSAMENTO (Engine)
 @st.cache_data(ttl=3600)
-def buscar_dados_mercado(df_base):
-    dados = []
+def fetch_market_data(df_base):
+    results = []
     for _, row in df_base.iterrows():
-        ticker_sa = f"{row['Ticker']}.SA"
-        fii = yf.Ticker(ticker_sa)
-        
-        # Preço e Dividendos
+        ticker_name = f"{row['Ticker']}.SA"
+        fii = yf.Ticker(ticker_name)
         hist = fii.history(period="1d")
+        
         if not hist.empty:
-            preco_atual = hist['Close'].iloc[-1]
-            divs = fii.dividends.tail(12).sum() if not fii.dividends.empty else 0
+            current_price = hist['Close'].iloc[-1]
+            divs_annual = fii.dividends.tail(12).sum() if not fii.dividends.empty else 0
             
-            # Cálculos Financeiros
-            valor_investido = row['Quantidade'] * row['Preco_Medio']
-            valor_atual = row['Quantidade'] * preco_atual
-            lucro = valor_atual - valor_investido
-            yoc = (divs / row['Preco_Medio']) * 100 # Yield on Cost
-            dy_atual = (divs / preco_atual) * 100   # Yield Atual
+            # Inteligência Financeira
+            invested = row['Quantidade'] * row['Preco_Medio']
+            current_val = row['Quantidade'] * current_price
+            profit_pct = ((current_val / invested) - 1) * 100
+            yoc = (divs_annual / row['Preco_Medio']) * 100
+            p_teto = divs_annual / 0.06 # Método Bazin
             
-            # Preço Teto Bazin (6%)
-            preco_teto = divs / 0.06
-            status = "🔥 BARATO" if preco_atual < preco_teto else "⚠️ CARO"
+            # Número Mágico (Cotas para 1 nova cota grátis por mês)
+            div_mensal_unid = divs_annual / 12
+            magic_num = int(current_price // div_mensal_unid) + 1 if div_mensal_unid > 0 else 0
 
-            dados.append({
+            results.append({
                 "Ticker": row['Ticker'],
                 "Setor": row['Setor'],
                 "Qtd": row['Quantidade'],
-                "Cotação": preco_atual,
+                "Cotação": current_price,
                 "P. Médio": row['Preco_Medio'],
-                "Resultado %": (lucro / valor_investido) * 100,
+                "Rentab %": profit_pct,
                 "YoC %": yoc,
-                "DY Atual %": dy_atual,
-                "P. Teto (6%)": preco_teto,
-                "Status": status,
-                "Patrimônio": valor_atual,
-                "Div_Anual_Estimado": divs * row['Quantidade']
+                "P. Teto": p_teto,
+                "Status": "✅ DESCONTO" if current_price < p_teto else "⚠️ CARO",
+                "Total Atual": current_val,
+                "Nº Mágico": magic_num
             })
-    return pd.DataFrame(dados)
+    return pd.DataFrame(results)
 
-# --- 3. INTERFACE PRINCIPAL ---
-st.title("🏙️ Jefferson FII Intelligence Pro")
-st.markdown("---")
+# --- EXECUÇÃO DOS DADOS ---
+df = fetch_market_data(pd.DataFrame(meus_investimentos))
 
-# Menu Lateral (Tabs)
-aba_selecionada = st.sidebar.radio("Navegação", ["Minha Carteira", "Simulador Bola de Neve", "Sobre os Ativos"])
-
-df_carteira_raw = pd.DataFrame(meus_investimentos)
-df_final = buscar_dados_mercado(df_carteira_raw)
-
-if aba_selecionada == "Minha Carteira":
-    # Métricas de Resumo
-    t1, t2, t3 = st.columns(3)
-    total_patrimonio = df_final['Patrimônio'].sum()
-    renda_mensal = df_final['Div_Anual_Estimado'].sum() / 12
-    
-    t1.metric("Patrimônio Total", f"R$ {total_patrimonio:,.2f}")
-    t2.metric("Renda Mensal Est.", f"R$ {renda_mensal:,.2f}")
-    t3.metric("Yield Médio da Carteira", f"{(renda_mensal*12/total_patrimonio)*100:.2f}%")
-
+# 4. BARRA LATERAL (Navegação)
+with st.sidebar:
+    st.title("💼 Menu")
+    menu = st.radio("Escolha a Visão:", ["📊 Dashboard Principal", "🔮 Simulador Bola de Neve"])
     st.divider()
+    st.write(f"Atualizado em: {datetime.now().strftime('%H:%M - %d/%m')}")
+
+# 5. ABA: DASHBOARD PRINCIPAL
+if menu == "📊 Dashboard Principal":
+    st.title("Estratégia de Renda Passiva")
+    
+    # KPIs Superiores
+    c1, c2, c3, c4 = st.columns(4)
+    patrimonio_total = df['Total Atual'].sum()
+    investimento_total = (df['Qtd'] * df['P. Médio']).sum()
+    lucro_total = patrimonio_total - investimento_total
+    renda_estimada = (df['YoC %']/100 * investimento_total) / 12
+
+    c1.metric("Patrimônio", f"R$ {patrimonio_total:,.2f}")
+    c2.metric("Lucro Bruto", f"R$ {lucro_total:,.2f}", f"{(lucro_total/investimento_total)*100:.2f}%")
+    c3.metric("Renda Mensal Est.", f"R$ {renda_estimada:,.2f}")
+    c4.metric("Ativos", len(df))
+
+    st.markdown("---")
 
     # Gráficos
-    col_g1, col_g2 = st.columns(2)
-    with col_g1:
-        st.subheader("📊 Diversificação por Setor")
-        fig_setor = px.pie(df_final, values='Patrimônio', names='Setor', hole=0.5)
-        st.plotly_chart(fig_setor, use_container_width=True)
-    
-    with col_g2:
-        st.subheader("🎯 Preço Atual vs Preço Teto")
-        fig_teto = go.Figure(data=[
-            go.Bar(name='Cotação Atual', x=df_final['Ticker'], y=df_final['Cotação'], marker_color='#1f77b4'),
-            go.Bar(name='Preço Teto', x=df_final['Ticker'], y=df_final['P. Teto (6%)'], marker_color='#2ca02c')
-        ])
-        st.plotly_chart(fig_teto, use_container_width=True)
+    g1, g2 = st.columns([1, 1.5])
+    with g1:
+        st.subheader("Concentração por Setor")
+        fig_pie = px.pie(df, values='Total Atual', names='Setor', hole=0.6, color_discrete_sequence=px.colors.qualitative.Prism)
+        st.plotly_chart(fig_pie, use_container_width=True)
 
-    # Tabela Detalhada
-    st.subheader("📋 Detalhamento Estratégico")
-    st.dataframe(df_final.style.format({
-        "Cotação": "R$ {:.2f}", "P. Médio": "R$ {:.2f}", "Resultado %": "{:.2f}%",
-        "YoC %": "{:.2f}%", "DY Atual %": "{:.2f}%", "P. Teto (6%)": "R$ {:.2f}", "Patrimônio": "R$ {:.2f}"
-    }), use_container_width=True)
+    with g2:
+        st.subheader("Cotação Atual vs Preço Teto")
+        fig_bar = go.Figure()
+        fig_bar.add_trace(go.Bar(x=df['Ticker'], y=df['Cotação'], name='Atual', marker_color='#2a9d8f'))
+        fig_bar.add_trace(go.Bar(x=df['Ticker'], y=df['P. Teto'], name='Teto (Bazin)', marker_color='#e76f51', opacity=0.4))
+        fig_bar.update_layout(barmode='overlay', margin=dict(t=0, b=0, l=0, r=0))
+        st.plotly_chart(fig_bar, use_container_width=True)
 
-elif aba_selecionada == "Simulador Bola de Neve":
-    st.subheader("🔮 Simulador de Reinvestimento (Bola de Neve)")
-    
-    c1, c2, c3 = st.columns(3)
-    aporte_ini = c1.number_input("Início (R$)", value=float(total_patrimonio))
-    aporte_mes = c2.number_input("Aporte Mensal (R$)", value=1000.0)
-    taxa_mes = c3.slider("DY Mensal Esperado (%)", 0.5, 1.5, 0.8) / 100
-    anos = st.slider("Tempo (Anos)", 1, 30, 10)
+    # Tabela Interativa
+    st.subheader("Análise Detalhada dos Ativos")
+    st.dataframe(
+        df.sort_values(by="Rentab %", ascending=False).style.format({
+            "Cotação": "R$ {:.2f}", "P. Médio": "R$ {:.2f}", "Rentab %": "{:.2f}%",
+            "YoC %": "{:.2f}%", "P. Teto": "R$ {:.2f}", "Total Atual": "R$ {:.2f}"
+        }), 
+        use_container_width=True
+    )
 
-    # Lógica da Simulação
-    dados_sim = []
-    saldo = aporte_ini
-    for mes in range(1, (anos * 12) + 1):
-        dividendos = saldo * taxa_mes
-        saldo += dividendos + aporte_mes
-        dados_sim.append({"Mês": mes, "Patrimônio": saldo, "Renda": dividendos})
+# 6. ABA: SIMULADOR
+elif menu == "🔮 Simulador Bola de Neve":
+    st.title("Simulador de Independência Financeira")
     
-    df_sim = pd.DataFrame(dados_sim)
+    col1, col2 = st.columns([1, 2])
     
-    st.success(f"Em {anos} anos, sua renda mensal será de **R$ {saldo * taxa_mes:,.2f}**")
-    st.line_chart(df_sim.set_index('Mês')['Patrimônio'])
-
-elif aba_selecionada == "Sobre os Ativos":
-    st.subheader("📚 Por que esses FIIs?")
-    st.write("""
-    - **Logística (HGLG11, BTLG11):** Foco em renda resiliente e contratos atípicos.
-    - **Shopping (XPML11, VISC11):** Proteção contra inflação e ganho de capital.
-    - **Papel (MXRF11):** Dividendos altos no curto/médio prazo.
-    """)
+    with col1:
+        st.write("### Parâmetros")
+        v_inicial = st.number_input("Capital Atual (R$)", value=float(patrimonio_total))
+        v_mensal = st.number_input("Aporte Mensal (R$)", value=1000.0)
+        v_taxa = st.slider("Dividend Yield Mensal (%)", 0.5, 1.5, 0.8) / 100
+        v_anos = st.slider("Horizonte (Anos)", 1, 30, 10)
+    
+    # Lógica de Juros Compostos
+    meses = v_anos * 12
+    historico = []
+    saldo = v_inicial
+    for m in range(1, meses + 1):
+        rendimento = saldo * v_taxa
+        saldo += rendimento + v_mensal
+        historico.append({"Mês": m, "Patrimônio": saldo, "Dividendos": rendimento})
+    
+    df_sim = pd.DataFrame(historico)
+    
+    with col2:
+        st.write("### Projeção de Crescimento")
+        st.success(f"Em {v_anos} anos seu rendimento mensal será de **R$ {saldo * v_taxa:,.2f}**")
+        fig_sim = px.area(df_sim, x="Mês", y="Patrimônio", color_discrete_sequence=['#2a9d8f'])
+        st.plotly_chart(fig_sim, use_container_width=True)
