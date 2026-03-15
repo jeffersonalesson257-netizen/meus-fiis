@@ -1,7 +1,4 @@
 streamlit
 pandas
 yfinance
-requests
-beautifulsoup4
-gspread
-google-auth
+plotly
