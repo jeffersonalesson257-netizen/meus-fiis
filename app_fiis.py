@@ -2,279 +2,202 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import plotly.express as px
-import plotly.graph_objects as go
 from datetime import datetime
 
-# -----------------------------
-# CONFIGURAÇÃO DA PÁGINA
-# -----------------------------
-
 st.set_page_config(
-    page_title="Jefferson Wealth Management",
-    page_icon="📈",
-    layout="wide"
+    page_title="Jefferson FII Analytics",
+    layout="wide",
+    page_icon="📈"
 )
 
-# -----------------------------
-# ESTILO VISUAL
-# -----------------------------
+st.title("📊 Plataforma Profissional de Análise de FIIs")
 
-st.markdown("""
-<style>
+# ------------------------------------------------
+# LISTA DE FIIs PARA ANALISAR
+# ------------------------------------------------
 
-.main {
-background-color:#f4f7f6;
-}
+lista_fiis = [
+"HGLG11","KNRI11","XPML11","BTLG11","VISC11",
+"MXRF11","CPTS11","XPLG11","BRCO11","PVBI11",
+"HGRE11","GGRC11","RBRR11","RECR11"
+]
 
-div[data-testid="stMetric"]{
-background-color:white;
-padding:15px;
-border-radius:12px;
-box-shadow:0px 3px 6px rgba(0,0,0,0.08);
-}
-
-[data-testid="stMetricValue"]{
-font-size:28px;
-color:#004b23;
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-# -----------------------------
-# CARTEIRA
-# -----------------------------
-
-meus_investimentos = {
-'Ticker':['HGLG11','KNRI11','XPML11','BTLG11','VISC11','MXRF11'],
-'Quantidade':[10,5,12,15,8,100],
-'Preco_Medio':[160.50,155.00,110.00,98.00,115.00,10.15],
-'Setor':['Logística','Híbrido','Shopping','Logística','Shopping','Papel']
-}
-
-base_df = pd.DataFrame(meus_investimentos)
-
-# -----------------------------
-# FUNÇÃO DE BUSCA DE DADOS
-# -----------------------------
+# ------------------------------------------------
+# BUSCAR DADOS DO MERCADO
+# ------------------------------------------------
 
 @st.cache_data(ttl=3600)
-def buscar_dados(df):
+def analisar_fiis(lista):
 
-    resultados = []
+    dados = []
 
-    for _, row in df.iterrows():
-
-        ticker = row['Ticker'] + ".SA"
+    for fii in lista:
 
         try:
 
-            fii = yf.Ticker(ticker)
+            ticker = yf.Ticker(f"{fii}.SA")
 
-            hist = fii.history(period="1d")
+            hist = ticker.history(period="1d")
 
             if hist.empty:
                 continue
 
-            preco = float(hist['Close'].iloc[-1])
+            preco = hist['Close'].iloc[-1]
 
-            dividendos = fii.dividends.tail(12).sum()
-
-            qtd = row['Quantidade']
-            pm = row['Preco_Medio']
-
-            investido = qtd * pm
-            valor_atual = qtd * preco
-
-            lucro = valor_atual - investido
-            rentabilidade = (lucro / investido) * 100
+            dividendos = ticker.dividends.tail(12).sum()
 
             dy = (dividendos / preco) * 100 if preco > 0 else 0
-            yoc = (dividendos / pm) * 100 if pm > 0 else 0
 
             preco_teto = dividendos / 0.06 if dividendos > 0 else 0
 
-            renda_anual = dividendos * qtd
+            desconto = ((preco_teto - preco) / preco_teto) * 100 if preco_teto > 0 else 0
 
-            resultados.append({
+            dados.append({
 
-                "Ticker":row['Ticker'],
-                "Setor":row['Setor'],
-                "Qtd":qtd,
-                "Cotação":preco,
-                "P.Médio":pm,
-                "DY %":dy,
-                "YoC %":yoc,
-                "Rentab %":rentabilidade,
-                "P.Teto":preco_teto,
-                "Status":"🟢 Barato" if preco < preco_teto else "🔴 Caro",
-                "Total Atual":valor_atual,
-                "Renda Anual":renda_anual
+                "Ticker": fii,
+                "Preço": preco,
+                "Dividendos_12m": dividendos,
+                "DY %": dy,
+                "Preço Teto": preco_teto,
+                "Desconto %": desconto,
+                "Status": "🟢 Oportunidade" if preco < preco_teto else "🔴 Caro"
 
             })
 
-        except Exception as e:
-            print(e)
+        except:
+            pass
 
-    return pd.DataFrame(resultados)
+    df = pd.DataFrame(dados)
 
-df = buscar_dados(base_df)
+    df = df.sort_values(by="DY %", ascending=False)
 
-# -----------------------------
-# SIDEBAR
-# -----------------------------
+    return df
 
-with st.sidebar:
 
-    st.title("💼 Jefferson WM")
+df_fiis = analisar_fiis(lista_fiis)
 
-    menu = st.radio(
-    "Menu",
-    ["📊 Dashboard","🔮 Simulador"]
+# ------------------------------------------------
+# MENU
+# ------------------------------------------------
+
+menu = st.sidebar.radio(
+"Menu",
+[
+"📊 Scanner de FIIs",
+"🏆 Ranking",
+"💼 Minha Carteira",
+"🔮 Simulador"
+]
+)
+
+st.sidebar.write(f"Atualizado {datetime.now().strftime('%H:%M')}")
+
+# ------------------------------------------------
+# SCANNER
+# ------------------------------------------------
+
+if menu == "📊 Scanner de FIIs":
+
+    st.subheader("Scanner de Oportunidades")
+
+    filtro_dy = st.slider("DY mínimo",0.0,15.0,6.0)
+
+    oportunidades = df_fiis[df_fiis["DY %"] > filtro_dy]
+
+    st.dataframe(oportunidades)
+
+    fig = px.scatter(
+        oportunidades,
+        x="Preço",
+        y="DY %",
+        color="Status",
+        size="Desconto %",
+        hover_name="Ticker"
     )
 
-    st.divider()
+    st.plotly_chart(fig,use_container_width=True)
 
-    st.caption(f"Atualizado: {datetime.now().strftime('%d/%m %H:%M')}")
+# ------------------------------------------------
+# RANKING
+# ------------------------------------------------
 
-# -----------------------------
-# DASHBOARD
-# -----------------------------
+elif menu == "🏆 Ranking":
 
-if menu == "📊 Dashboard":
+    st.subheader("Top FIIs por Dividend Yield")
 
-    st.title("📊 Dashboard de FIIs")
+    top = df_fiis.sort_values("DY %",ascending=False).head(10)
 
-    patrimonio = df['Total Atual'].sum()
-    investido = (df['Qtd'] * df['P.Médio']).sum()
-    lucro = patrimonio - investido
-    renda_mensal = df['Renda Anual'].sum() / 12
+    st.dataframe(top)
 
-    c1,c2,c3,c4 = st.columns(4)
-
-    c1.metric("Patrimônio",f"R$ {patrimonio:,.2f}")
-    c2.metric("Lucro",f"R$ {lucro:,.2f}",f"{(lucro/investido)*100:.2f}%")
-    c3.metric("Renda Mensal",f"R$ {renda_mensal:,.2f}")
-    c4.metric("FIIs",len(df))
-
-    st.divider()
-
-    col1,col2 = st.columns(2)
-
-    with col1:
-
-        st.subheader("Alocação por Setor")
-
-        fig = px.pie(
-        df,
-        values="Total Atual",
-        names="Setor",
-        hole=0.5
-        )
-
-        st.plotly_chart(fig,use_container_width=True)
-
-    with col2:
-
-        st.subheader("Preço vs Preço Teto")
-
-        fig = go.Figure()
-
-        fig.add_trace(go.Bar(
-        x=df['Ticker'],
-        y=df['Cotação'],
-        name="Preço Atual"
-        ))
-
-        fig.add_trace(go.Bar(
-        x=df['Ticker'],
-        y=df['P.Teto'],
-        name="Preço Teto",
-        opacity=0.4
-        ))
-
-        fig.update_layout(barmode="overlay")
-
-        st.plotly_chart(fig,use_container_width=True)
-
-    st.subheader("Tabela de Análise")
-
-    st.dataframe(
-    df.style.format({
-    "Cotação":"R$ {:.2f}",
-    "P.Médio":"R$ {:.2f}",
-    "DY %":"{:.2f}%",
-    "YoC %":"{:.2f}%",
-    "Rentab %":"{:.2f}%",
-    "P.Teto":"R$ {:.2f}",
-    "Total Atual":"R$ {:.2f}",
-    "Renda Anual":"R$ {:.2f}"
-    }),
-    use_container_width=True
+    fig = px.bar(
+        top,
+        x="Ticker",
+        y="DY %",
+        color="Status"
     )
 
-# -----------------------------
+    st.plotly_chart(fig,use_container_width=True)
+
+# ------------------------------------------------
+# CARTEIRA
+# ------------------------------------------------
+
+elif menu == "💼 Minha Carteira":
+
+    st.subheader("Carteira de FIIs")
+
+    carteira = {
+    "Ticker":["HGLG11","KNRI11","MXRF11"],
+    "Qtd":[10,5,100],
+    "PM":[160,155,10]
+    }
+
+    df_cart = pd.DataFrame(carteira)
+
+    patrimonio = 0
+
+    for i,row in df_cart.iterrows():
+
+        preco = df_fiis[df_fiis["Ticker"]==row["Ticker"]]["Preço"].values
+
+        if len(preco)>0:
+
+            patrimonio += preco[0]*row["Qtd"]
+
+    st.metric("Patrimônio Atual",f"R$ {patrimonio:,.2f}")
+
+    st.dataframe(df_cart)
+
+# ------------------------------------------------
 # SIMULADOR
-# -----------------------------
+# ------------------------------------------------
 
 elif menu == "🔮 Simulador":
 
-    st.title("Simulador de Renda Passiva")
+    st.subheader("Simulador de Independência Financeira")
 
-    col1,col2 = st.columns([1,2])
+    capital = st.number_input("Capital Inicial",10000.0)
 
-    with col1:
+    aporte = st.number_input("Aporte mensal",1000.0)
 
-        capital = st.number_input(
-        "Capital Inicial",
-        value=float(df['Total Atual'].sum())
-        )
+    taxa = st.slider("Yield mensal %",0.5,1.5,0.8)/100
 
-        aporte = st.number_input(
-        "Aporte Mensal",
-        value=1000.0
-        )
+    anos = st.slider("Anos",1,30,10)
 
-        taxa = st.slider(
-        "Yield Mensal %",
-        0.5,
-        1.5,
-        0.8
-        ) / 100
-
-        anos = st.slider(
-        "Anos",
-        1,
-        30,
-        10
-        )
-
-    meses = anos * 12
+    meses = anos*12
 
     saldo = capital
 
     historico = []
 
-    for mes in range(1,meses+1):
+    for m in range(meses):
 
-        renda = saldo * taxa
+        renda = saldo*taxa
+
         saldo += renda + aporte
 
-        historico.append({
-        "Mes":mes,
-        "Saldo":saldo
-        })
+        historico.append(saldo)
 
-    with col2:
+    st.metric("Renda mensal futura",f"R$ {saldo*taxa:,.2f}")
 
-        renda_futura = saldo * taxa
-
-        st.success(
-        f"Renda mensal futura: R$ {renda_futura:,.2f}"
-        )
-
-        graf = pd.DataFrame(historico)
-
-        st.area_chart(
-        graf.set_index("Mes")["Saldo"]
-        )
+    st.line_chart(historico)
