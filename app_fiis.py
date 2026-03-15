@@ -3,124 +3,74 @@ import pandas as pd
 import yfinance as yf
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
+import numpy as np
+from io import BytesIO
 
-# -----------------------------------
-# CONFIGURAÇÃO DA PÁGINA
-# -----------------------------------
+st.set_page_config(layout="wide")
 
-st.set_page_config(
-    page_title="Jefferson Wealth Management",
-    layout="wide",
-    page_icon="📊"
-)
+# -----------------------------
+# Lista de FIIs
+# -----------------------------
 
-# -----------------------------------
-# ESTILO VISUAL PROFISSIONAL
-# -----------------------------------
-
-st.markdown("""
-<style>
-
-.stApp {
-background: linear-gradient(135deg,#0f172a,#1e293b);
-color:white;
-}
-
-div[data-testid="stMetric"]{
-background:linear-gradient(145deg,#1e293b,#0f172a);
-border-radius:15px;
-padding:20px;
-box-shadow:0 10px 25px rgba(0,0,0,0.4);
-border:1px solid #334155;
-}
-
-[data-testid="stMetricValue"]{
-font-size:30px;
-font-weight:700;
-color:#22c55e;
-}
-
-h1,h2,h3{
-color:#f1f5f9;
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-st.title("📊 Jefferson Wealth Management")
-
-# -----------------------------------
-# FORMATAR MOEDA BR
-# -----------------------------------
-
-def brl(valor):
-
-    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X",".")
-
-# -----------------------------------
-# LISTA DE FIIs
-# -----------------------------------
-
-lista_fiis = [
+fiis_lista = [
 "HGLG11","KNRI11","XPML11","BTLG11","VISC11",
 "MXRF11","CPTS11","XPLG11","BRCO11","PVBI11",
-"HGRE11","GGRC11","RBRR11","RECR11"
+"HGRE11","GGRC11","RBRR11","RECR11","IRDM11",
+"VGIR11","VILG11","RBRP11","JSRE11","HSML11"
 ]
 
-# -----------------------------------
-# BUSCAR DADOS
-# -----------------------------------
+# -----------------------------
+# Função preço BR
+# -----------------------------
+
+def brl(valor):
+    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X",".")
+
+# -----------------------------
+# Buscar dados
+# -----------------------------
 
 @st.cache_data(ttl=300)
+def buscar_dados():
 
-def buscar_dados(lista):
+    dados = []
 
-    dados=[]
-
-    for fii in lista:
+    for fii in fiis_lista:
 
         try:
 
-            ticker=yf.Ticker(f"{fii}.SA")
+            ticker = yf.Ticker(f"{fii}.SA")
 
-            hist=ticker.history(period="1d")
+            hist = ticker.history(period="1d")
 
             if hist.empty:
                 continue
 
-            preco=hist["Close"].iloc[-1]
+            preco = hist["Close"].iloc[-1]
 
-            dividendos=ticker.dividends.tail(12).sum()
+            dividendos = ticker.dividends.tail(12).sum()
 
-            dy=(dividendos/preco)*100 if preco>0 else 0
-
-            preco_teto=dividendos/0.06 if dividendos>0 else 0
-
-            desconto=((preco_teto-preco)/preco_teto)*100 if preco_teto>0 else 0
+            dy = (dividendos/preco)*100 if preco>0 else 0
 
             dados.append({
-
                 "Ticker":fii,
                 "Preço":preco,
                 "Dividendos":dividendos,
-                "DY":dy,
-                "Preço Teto":preco_teto,
-                "Desconto":desconto
-
+                "DY":dy
             })
 
         except:
-
             pass
 
-    return pd.DataFrame(dados)
+    df = pd.DataFrame(dados)
 
-df_fiis=buscar_dados(lista_fiis)
+    return df
 
-# -----------------------------------
-# MENU LATERAL
-# -----------------------------------
+df = buscar_dados()
+
+# -----------------------------
+# Menu lateral
+# -----------------------------
 
 menu = st.sidebar.selectbox(
 
@@ -128,287 +78,186 @@ menu = st.sidebar.selectbox(
 
 [
 "Dashboard",
-"Scanner de FIIs",
+"Scanner",
+"Ranking",
 "Minha Carteira",
-"Radar FII",
+"Radar de Risco",
 "Simulador"
 ]
 
 )
 
-st.sidebar.caption(f"Atualizado {datetime.now().strftime('%H:%M:%S')}")
+# -----------------------------
+# Dashboard
+# -----------------------------
 
-# -----------------------------------
-# DASHBOARD
-# -----------------------------------
+if menu == "Dashboard":
 
-if menu=="Dashboard":
+    st.title("📊 Dashboard de FIIs")
 
-    st.subheader("Visão geral do mercado")
+    col1,col2,col3 = st.columns(3)
 
-    fig = px.scatter(
-        df_fiis,
-        x="Preço",
+    col1.metric("FIIs analisados",len(df))
+    col2.metric("Dividend Yield médio",f"{df['DY'].mean():.2f}%")
+    col3.metric("Preço médio",brl(df["Preço"].mean()))
+
+    fig = px.bar(
+        df,
+        x="Ticker",
         y="DY",
-        size="Desconto",
-        hover_name="Ticker",
-        color="DY"
+        title="Dividend Yield dos FIIs"
     )
-
-    fig.update_layout(template="plotly_dark")
 
     st.plotly_chart(fig,use_container_width=True)
 
-# -----------------------------------
-# SCANNER
-# -----------------------------------
+    st.dataframe(df)
 
-if menu=="Scanner de FIIs":
+# -----------------------------
+# Scanner
+# -----------------------------
 
-    st.subheader("Scanner de oportunidades")
+elif menu == "Scanner":
 
-    col1,col2,col3=st.columns(3)
+    st.title("🔎 Scanner de FIIs")
 
-    with col1:
-        filtro_dy=st.slider("Dividend Yield mínimo",0.0,15.0,6.0)
+    dy_min = st.slider("DY mínimo",0.0,15.0,6.0)
 
-    with col2:
-        filtro_desc=st.slider("Desconto mínimo",-20.0,50.0,0.0)
+    df_filtrado = df[df["DY"]>=dy_min]
 
-    with col3:
-        preco_max=st.number_input("Preço máximo",0.0,500.0,200.0)
+    st.write(f"{len(df_filtrado)} FIIs encontrados")
 
-    df_filtrado=df_fiis[
-        (df_fiis["DY"]>=filtro_dy) &
-        (df_fiis["Desconto"]>=filtro_desc) &
-        (df_fiis["Preço"]<=preco_max)
+    st.dataframe(df_filtrado)
+
+    # exportar excel
+    buffer = BytesIO()
+    df_filtrado.to_excel(buffer,index=False)
+
+    st.download_button(
+        "📥 Exportar Excel",
+        data=buffer.getvalue(),
+        file_name="scanner_fiis.xlsx"
+    )
+
+# -----------------------------
+# Ranking
+# -----------------------------
+
+elif menu == "Ranking":
+
+    st.title("🏆 Ranking de FIIs")
+
+    df["Score"] = (
+        df["DY"]*0.7 +
+        (1/df["Preço"])*30
+    )
+
+    ranking = df.sort_values("Score",ascending=False)
+
+    st.dataframe(ranking)
+
+    fig = px.bar(
+        ranking.head(10),
+        x="Ticker",
+        y="Score",
+        title="Top 10 FIIs"
+    )
+
+    st.plotly_chart(fig,use_container_width=True)
+
+# -----------------------------
+# Carteira
+# -----------------------------
+
+elif menu == "Minha Carteira":
+
+    st.title("💼 Minha Carteira")
+
+    ticker = st.selectbox("FII",fiis_lista)
+
+    quantidade = st.number_input("Quantidade",1)
+
+    preco_compra = st.number_input("Preço compra",0.0)
+
+    if st.button("Adicionar"):
+
+        valor = quantidade * preco_compra
+
+        st.success(f"Investimento total: {brl(valor)}")
+
+# -----------------------------
+# Radar de risco
+# -----------------------------
+
+elif menu == "Radar de Risco":
+
+    st.title("📡 Radar de Risco")
+
+    categorias = [
+    "Liquidez",
+    "Vacância",
+    "Gestão",
+    "Diversificação",
+    "Dividendos",
+    "Risco"
     ]
 
-    df_exibir=df_filtrado.copy()
-
-    df_exibir["Preço"]=df_exibir["Preço"].apply(brl)
-
-    df_exibir["Preço Teto"]=df_exibir["Preço Teto"].apply(brl)
-
-    st.dataframe(df_exibir)
-
-    # EXPORTAR EXCEL
-
-    excel=df_filtrado.to_excel("scanner_fiis.xlsx",index=False)
-
-    st.download_button(
-
-        "📥 Exportar Excel",
-
-        data=open("scanner_fiis.xlsx","rb"),
-
-        file_name="scanner_fiis.xlsx"
-
-    )
-
-# -----------------------------------
-# MINHA CARTEIRA
-# -----------------------------------
-
-if menu=="Minha Carteira":
-
-    st.subheader("Gestão da carteira")
-
-    if "carteira" not in st.session_state:
-
-        st.session_state.carteira=pd.DataFrame({
-
-            "Ticker":["HGLG11","MXRF11"],
-            "Qtd":[10,100],
-            "PM":[160,10]
-
-        })
-
-    carteira_edit=st.data_editor(
-
-        st.session_state.carteira,
-
-        num_rows="dynamic"
-
-    )
-
-    st.session_state.carteira=carteira_edit
-
-    patrimonio=0
-
-    renda_anual=0
-
-    dados=[]
-
-    for _,row in carteira_edit.iterrows():
-
-        ticker=row["Ticker"]
-
-        qtd=row["Qtd"]
-
-        pm=row["PM"]
-
-        if ticker in df_fiis["Ticker"].values:
-
-            preco=df_fiis[df_fiis["Ticker"]==ticker]["Preço"].values[0]
-
-            dy=df_fiis[df_fiis["Ticker"]==ticker]["DY"].values[0]
-
-            valor=qtd*preco
-
-            patrimonio+=valor
-
-            renda=qtd*(dy/100)*preco
-
-            renda_anual+=renda
-
-            dados.append({
-
-                "Ticker":ticker,
-                "Qtd":qtd,
-                "PM":pm,
-                "Preço":preco,
-                "Valor":valor,
-                "DY":dy
-
-            })
-
-    df_cart=pd.DataFrame(dados)
-
-    col1,col2,col3=st.columns(3)
-
-    col1.metric("Patrimônio",brl(patrimonio))
-
-    col2.metric("Renda anual",brl(renda_anual))
-
-    col3.metric("Renda mensal",brl(renda_anual/12))
-
-    df_exibir=df_cart.copy()
-
-    df_exibir["Preço"]=df_exibir["Preço"].apply(brl)
-
-    df_exibir["Valor"]=df_exibir["Valor"].apply(brl)
-
-    st.dataframe(df_exibir)
-
-    # EXPORTAR CARTEIRA
-
-    df_cart.to_excel("minha_carteira.xlsx",index=False)
-
-    st.download_button(
-
-        "📥 Exportar carteira",
-
-        data=open("minha_carteira.xlsx","rb"),
-
-        file_name="minha_carteira.xlsx"
-
-    )
-
-    fig=px.pie(df_cart,names="Ticker",values="Valor")
-
-    fig.update_layout(template="plotly_dark")
-
-    st.plotly_chart(fig,use_container_width=True)
-
-# -----------------------------------
-# RADAR FII
-# -----------------------------------
-
-if menu=="Radar FII":
-
-    st.subheader("Análise de risco do FII")
-
-    fii=st.selectbox("Escolher FII",df_fiis["Ticker"])
-
-    dy=st.slider("Dividend Yield",0,10,7)
-
-    pvp=st.slider("P/VP",0,10,6)
-
-    liquidez=st.slider("Liquidez",0,10,8)
-
-    estabilidade=st.slider("Estabilidade Dividendos",0,10,7)
-
-    vacancia=st.slider("Vacância",0,10,6)
-
-    diversificacao=st.slider("Diversificação",0,10,7)
-
-    categorias=["DY","PVP","Liquidez","Estabilidade","Vacância","Diversificação"]
-
-    valores=[dy,pvp,liquidez,estabilidade,vacancia,diversificacao]
-
-    valores.append(valores[0])
+    valores = np.random.randint(4,10,6)
 
     categorias.append(categorias[0])
+    valores = np.append(valores,valores[0])
 
-    fig=go.Figure()
+    fig = go.Figure()
 
     fig.add_trace(go.Scatterpolar(
-
         r=valores,
-
         theta=categorias,
-
         fill='toself'
-
     ))
 
-    fig.update_layout(
+    st.plotly_chart(fig)
 
-        template="plotly_dark",
+# -----------------------------
+# Simulador
+# -----------------------------
 
-        polar=dict(
+elif menu == "Simulador":
 
-            radialaxis=dict(
+    st.title("🔮 Simulador de Dividendos")
 
-                visible=True,
+    capital = st.number_input("Capital inicial",10000)
 
-                range=[0,10]
+    aporte = st.number_input("Aporte mensal",1000)
 
-            )
+    dy = st.slider("Dividend Yield anual",5,15,10)
 
-        )
+    anos = st.slider("Anos",1,30,10)
 
+    meses = anos*12
+
+    saldo = capital
+
+    historico = []
+
+    taxa = dy/100/12
+
+    for i in range(meses):
+
+        renda = saldo*taxa
+
+        saldo += renda + aporte
+
+        historico.append(saldo)
+
+    fig = px.line(
+        y=historico,
+        title="Crescimento do patrimônio"
     )
 
     st.plotly_chart(fig)
 
-# -----------------------------------
-# SIMULADOR
-# -----------------------------------
-
-if menu=="Simulador":
-
-    st.subheader("Simulador de renda passiva")
-
-    capital=st.number_input("Capital inicial",10000.0)
-
-    aporte=st.number_input("Aporte mensal",1000.0)
-
-    taxa=st.slider("Yield mensal %",0.5,1.5,0.8)/100
-
-    anos=st.slider("Anos",1,30,10)
-
-    meses=anos*12
-
-    saldo=capital
-
-    historico=[]
-
-    for i in range(meses):
-
-        renda=saldo*taxa
-
-        saldo+=renda+aporte
-
-        historico.append(saldo)
+    renda_final = saldo*taxa
 
     st.metric(
-
-        "Renda mensal futura",
-
-        brl(saldo*taxa)
-
+        "Renda mensal estimada",
+        brl(renda_final)
     )
-
-    st.line_chart(historico)
