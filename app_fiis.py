@@ -6,31 +6,31 @@ import plotly.graph_objects as go
 import numpy as np
 from io import BytesIO
 
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="Plataforma FIIs", layout="wide")
 
-# -----------------------------
-# Lista de FIIs
-# -----------------------------
+# -------------------------
+# Lista grande de FIIs
+# -------------------------
 
 fiis_lista = [
-"HGLG11","KNRI11","XPML11","BTLG11","VISC11",
-"MXRF11","CPTS11","XPLG11","BRCO11","PVBI11",
-"HGRE11","GGRC11","RBRR11","RECR11","IRDM11",
-"VGIR11","VILG11","RBRP11","JSRE11","HSML11"
+"HGLG11","KNRI11","XPML11","BTLG11","VISC11","MXRF11",
+"CPTS11","XPLG11","BRCO11","PVBI11","HGRE11","GGRC11",
+"RBRR11","RECR11","IRDM11","VGIR11","VILG11","RBRP11",
+"JSRE11","HSML11","PATL11","ALZR11","LVBI11","XPCI11"
 ]
 
-# -----------------------------
-# Função preço BR
-# -----------------------------
+# -------------------------
+# Formatação brasileira
+# -------------------------
 
 def brl(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X",".")
 
-# -----------------------------
+# -------------------------
 # Buscar dados
-# -----------------------------
+# -------------------------
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=600)
 def buscar_dados():
 
     dados = []
@@ -52,11 +52,19 @@ def buscar_dados():
 
             dy = (dividendos/preco)*100 if preco>0 else 0
 
+            score = (
+                dy*0.6 +
+                (1/preco)*40
+            )
+
             dados.append({
+
                 "Ticker":fii,
                 "Preço":preco,
                 "Dividendos":dividendos,
-                "DY":dy
+                "DY":dy,
+                "Score":score
+
             })
 
         except:
@@ -68,9 +76,9 @@ def buscar_dados():
 
 df = buscar_dados()
 
-# -----------------------------
-# Menu lateral
-# -----------------------------
+# -------------------------
+# Menu
+# -------------------------
 
 menu = st.sidebar.selectbox(
 
@@ -78,78 +86,92 @@ menu = st.sidebar.selectbox(
 
 [
 "Dashboard",
+"Heatmap",
 "Scanner",
 "Ranking",
-"Minha Carteira",
-"Radar de Risco",
+"Radar",
 "Simulador"
 ]
 
 )
 
-# -----------------------------
+# -------------------------
 # Dashboard
-# -----------------------------
+# -------------------------
 
 if menu == "Dashboard":
 
-    st.title("📊 Dashboard de FIIs")
+    st.title("📊 Dashboard FIIs")
 
     col1,col2,col3 = st.columns(3)
 
     col1.metric("FIIs analisados",len(df))
-    col2.metric("Dividend Yield médio",f"{df['DY'].mean():.2f}%")
+    col2.metric("DY médio",f"{df['DY'].mean():.2f}%")
     col3.metric("Preço médio",brl(df["Preço"].mean()))
 
-    fig = px.bar(
-        df,
-        x="Ticker",
-        y="DY",
-        title="Dividend Yield dos FIIs"
-    )
+    fig = px.bar(df,x="Ticker",y="DY",color="DY")
 
     st.plotly_chart(fig,use_container_width=True)
 
     st.dataframe(df)
 
-# -----------------------------
+# -------------------------
+# HEATMAP
+# -------------------------
+
+elif menu == "Heatmap":
+
+    st.title("🔥 Mapa de Calor dos FIIs")
+
+    fig = px.density_heatmap(
+        df,
+        x="Preço",
+        y="DY",
+        z="Score",
+        color_continuous_scale="RdYlGn"
+    )
+
+    st.plotly_chart(fig,use_container_width=True)
+
+# -------------------------
 # Scanner
-# -----------------------------
+# -------------------------
 
 elif menu == "Scanner":
 
-    st.title("🔎 Scanner de FIIs")
+    st.title("🔎 Scanner Profissional")
 
-    dy_min = st.slider("DY mínimo",0.0,15.0,6.0)
+    dy_min = st.slider("Dividend Yield mínimo",0.0,15.0,7.0)
 
-    df_filtrado = df[df["DY"]>=dy_min]
+    preco_max = st.slider("Preço máximo",10.0,200.0,120.0)
 
-    st.write(f"{len(df_filtrado)} FIIs encontrados")
+    filtro = df[
+        (df["DY"] >= dy_min) &
+        (df["Preço"] <= preco_max)
+    ]
 
-    st.dataframe(df_filtrado)
+    st.write(f"{len(filtro)} FIIs encontrados")
+
+    st.dataframe(filtro)
 
     # exportar excel
     buffer = BytesIO()
-    df_filtrado.to_excel(buffer,index=False)
+
+    filtro.to_excel(buffer,index=False)
 
     st.download_button(
         "📥 Exportar Excel",
-        data=buffer.getvalue(),
-        file_name="scanner_fiis.xlsx"
+        buffer.getvalue(),
+        "scanner_fiis.xlsx"
     )
 
-# -----------------------------
+# -------------------------
 # Ranking
-# -----------------------------
+# -------------------------
 
 elif menu == "Ranking":
 
     st.title("🏆 Ranking de FIIs")
-
-    df["Score"] = (
-        df["DY"]*0.7 +
-        (1/df["Preço"])*30
-    )
 
     ranking = df.sort_values("Score",ascending=False)
 
@@ -159,46 +181,26 @@ elif menu == "Ranking":
         ranking.head(10),
         x="Ticker",
         y="Score",
-        title="Top 10 FIIs"
+        color="DY"
     )
 
     st.plotly_chart(fig,use_container_width=True)
 
-# -----------------------------
-# Carteira
-# -----------------------------
+# -------------------------
+# Radar
+# -------------------------
 
-elif menu == "Minha Carteira":
-
-    st.title("💼 Minha Carteira")
-
-    ticker = st.selectbox("FII",fiis_lista)
-
-    quantidade = st.number_input("Quantidade",1)
-
-    preco_compra = st.number_input("Preço compra",0.0)
-
-    if st.button("Adicionar"):
-
-        valor = quantidade * preco_compra
-
-        st.success(f"Investimento total: {brl(valor)}")
-
-# -----------------------------
-# Radar de risco
-# -----------------------------
-
-elif menu == "Radar de Risco":
+elif menu == "Radar":
 
     st.title("📡 Radar de Risco")
 
     categorias = [
-    "Liquidez",
-    "Vacância",
-    "Gestão",
-    "Diversificação",
-    "Dividendos",
-    "Risco"
+        "Liquidez",
+        "Vacância",
+        "Gestão",
+        "Diversificação",
+        "Dividendos",
+        "Risco"
     ]
 
     valores = np.random.randint(4,10,6)
@@ -216,9 +218,9 @@ elif menu == "Radar de Risco":
 
     st.plotly_chart(fig)
 
-# -----------------------------
+# -------------------------
 # Simulador
-# -----------------------------
+# -------------------------
 
 elif menu == "Simulador":
 
@@ -228,17 +230,17 @@ elif menu == "Simulador":
 
     aporte = st.number_input("Aporte mensal",1000)
 
-    dy = st.slider("Dividend Yield anual",5,15,10)
+    dy = st.slider("DY anual (%)",5,15,10)
 
-    anos = st.slider("Anos",1,30,10)
+    anos = st.slider("Tempo (anos)",1,30,10)
 
     meses = anos*12
+
+    taxa = dy/100/12
 
     saldo = capital
 
     historico = []
-
-    taxa = dy/100/12
 
     for i in range(meses):
 
@@ -248,16 +250,10 @@ elif menu == "Simulador":
 
         historico.append(saldo)
 
-    fig = px.line(
-        y=historico,
-        title="Crescimento do patrimônio"
-    )
+    fig = px.line(y=historico,title="Crescimento do patrimônio")
 
     st.plotly_chart(fig)
 
     renda_final = saldo*taxa
 
-    st.metric(
-        "Renda mensal estimada",
-        brl(renda_final)
-    )
+    st.metric("Renda mensal estimada",brl(renda_final))
