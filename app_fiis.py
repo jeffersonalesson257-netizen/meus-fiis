@@ -8,9 +8,9 @@ from io import BytesIO
 
 st.set_page_config(page_title="Plataforma FIIs", layout="wide")
 
-# -------------------------
-# Lista grande de FIIs
-# -------------------------
+# ----------------------------
+# Lista de FIIs
+# ----------------------------
 
 fiis_lista = [
 "HGLG11","KNRI11","XPML11","BTLG11","VISC11","MXRF11",
@@ -19,16 +19,16 @@ fiis_lista = [
 "JSRE11","HSML11","PATL11","ALZR11","LVBI11","XPCI11"
 ]
 
-# -------------------------
-# Formatação brasileira
-# -------------------------
+# ----------------------------
+# Formato R$
+# ----------------------------
 
 def brl(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X",".")
 
-# -------------------------
-# Buscar dados
-# -------------------------
+# ----------------------------
+# Buscar dados mercado
+# ----------------------------
 
 @st.cache_data(ttl=600)
 def buscar_dados():
@@ -52,10 +52,7 @@ def buscar_dados():
 
             dy = (dividendos/preco)*100 if preco>0 else 0
 
-            score = (
-                dy*0.6 +
-                (1/preco)*40
-            )
+            score = (dy*0.6 + (1/preco)*40)
 
             dados.append({
 
@@ -70,15 +67,13 @@ def buscar_dados():
         except:
             pass
 
-    df = pd.DataFrame(dados)
-
-    return df
+    return pd.DataFrame(dados)
 
 df = buscar_dados()
 
-# -------------------------
+# ----------------------------
 # Menu
-# -------------------------
+# ----------------------------
 
 menu = st.sidebar.selectbox(
 
@@ -89,15 +84,16 @@ menu = st.sidebar.selectbox(
 "Heatmap",
 "Scanner",
 "Ranking",
+"Minha Carteira",
 "Radar",
 "Simulador"
 ]
 
 )
 
-# -------------------------
+# ----------------------------
 # Dashboard
-# -------------------------
+# ----------------------------
 
 if menu == "Dashboard":
 
@@ -115,9 +111,9 @@ if menu == "Dashboard":
 
     st.dataframe(df)
 
-# -------------------------
-# HEATMAP
-# -------------------------
+# ----------------------------
+# Heatmap
+# ----------------------------
 
 elif menu == "Heatmap":
 
@@ -133,28 +129,27 @@ elif menu == "Heatmap":
 
     st.plotly_chart(fig,use_container_width=True)
 
-# -------------------------
+# ----------------------------
 # Scanner
-# -------------------------
+# ----------------------------
 
 elif menu == "Scanner":
 
-    st.title("🔎 Scanner Profissional")
+    st.title("🔎 Scanner de FIIs")
 
-    dy_min = st.slider("Dividend Yield mínimo",0.0,15.0,7.0)
+    dy_min = st.slider("DY mínimo",0.0,15.0,7.0)
 
     preco_max = st.slider("Preço máximo",10.0,200.0,120.0)
 
     filtro = df[
-        (df["DY"] >= dy_min) &
-        (df["Preço"] <= preco_max)
+        (df["DY"]>=dy_min) &
+        (df["Preço"]<=preco_max)
     ]
 
     st.write(f"{len(filtro)} FIIs encontrados")
 
     st.dataframe(filtro)
 
-    # exportar excel
     buffer = BytesIO()
 
     filtro.to_excel(buffer,index=False)
@@ -165,9 +160,9 @@ elif menu == "Scanner":
         "scanner_fiis.xlsx"
     )
 
-# -------------------------
+# ----------------------------
 # Ranking
-# -------------------------
+# ----------------------------
 
 elif menu == "Ranking":
 
@@ -186,9 +181,92 @@ elif menu == "Ranking":
 
     st.plotly_chart(fig,use_container_width=True)
 
-# -------------------------
+# ----------------------------
+# Minha Carteira
+# ----------------------------
+
+elif menu == "Minha Carteira":
+
+    st.title("💼 Minha Carteira")
+
+    if "carteira" not in st.session_state:
+        st.session_state.carteira = []
+
+    col1,col2,col3 = st.columns(3)
+
+    ticker = col1.selectbox("FII",fiis_lista)
+
+    quantidade = col2.number_input("Quantidade",1)
+
+    preco_compra = col3.number_input("Preço de compra",0.0)
+
+    if st.button("Adicionar FII"):
+
+        preco_atual = df[df["Ticker"]==ticker]["Preço"].values[0]
+
+        investido = quantidade*preco_compra
+
+        valor_atual = quantidade*preco_atual
+
+        lucro = valor_atual-investido
+
+        dy = df[df["Ticker"]==ticker]["DY"].values[0]
+
+        dividendo = valor_atual*(dy/100)/12
+
+        st.session_state.carteira.append({
+
+            "Ticker":ticker,
+            "Quantidade":quantidade,
+            "Preço Compra":preco_compra,
+            "Preço Atual":preco_atual,
+            "Investido":investido,
+            "Valor Atual":valor_atual,
+            "Lucro":lucro,
+            "Dividendo Mensal":dividendo
+
+        })
+
+    if len(st.session_state.carteira)>0:
+
+        carteira_df = pd.DataFrame(st.session_state.carteira)
+
+        total_investido = carteira_df["Investido"].sum()
+        total_atual = carteira_df["Valor Atual"].sum()
+        lucro_total = carteira_df["Lucro"].sum()
+        renda = carteira_df["Dividendo Mensal"].sum()
+
+        c1,c2,c3,c4 = st.columns(4)
+
+        c1.metric("Total Investido",brl(total_investido))
+        c2.metric("Valor Atual",brl(total_atual))
+        c3.metric("Lucro / Prejuízo",brl(lucro_total))
+        c4.metric("Dividendos Mensais",brl(renda))
+
+        st.dataframe(carteira_df)
+
+        fig = px.pie(
+            carteira_df,
+            names="Ticker",
+            values="Valor Atual",
+            title="Alocação da Carteira"
+        )
+
+        st.plotly_chart(fig,use_container_width=True)
+
+        buffer = BytesIO()
+
+        carteira_df.to_excel(buffer,index=False)
+
+        st.download_button(
+            "📥 Exportar Carteira Excel",
+            buffer.getvalue(),
+            "minha_carteira_fiis.xlsx"
+        )
+
+# ----------------------------
 # Radar
-# -------------------------
+# ----------------------------
 
 elif menu == "Radar":
 
@@ -218,9 +296,9 @@ elif menu == "Radar":
 
     st.plotly_chart(fig)
 
-# -------------------------
+# ----------------------------
 # Simulador
-# -------------------------
+# ----------------------------
 
 elif menu == "Simulador":
 
