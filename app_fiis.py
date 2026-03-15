@@ -1,75 +1,32 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import requests
-from bs4 import BeautifulSoup
+import gspread
+from google.oauth2.service_account import Credentials
 
-st.set_page_config(page_title="Gestor de FIIs Pro", layout="wide")
+# --- CONFIGURAÇÃO GOOGLE SHEETS ---
+scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
-# --- FUNÇÃO DE SCRAPING (Melhoria de Dados) ---
-def buscar_indicadores(ticker):
-    # Exemplo simplificado de extração de indicadores fundamentais
-    url = f"https://www.fundamentus.com.br/detalhes.php?papel={ticker}"
-    headers = {'User-Agent': 'Mozilla/5.0'}
+# No Streamlit Cloud, você usará st.secrets para segurança, 
+# mas para rodar localmente use o arquivo json:
+def buscar_dados_sheets():
     try:
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        # Aqui você capturaria as tags específicas de P/VP e Dividend Yield
-        # Para este exemplo, manteremos valores simulados que seriam extraídos
-        return {"P/VP": 0.95, "DY_12M": "10.5%"} 
-    except:
-        return {"P/VP": "N/A", "DY_12M": "N/A"}
+        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"])
+        client = gspread.authorize(creds)
+        sh = client.open("Carteira_FII").worksheet("Dados")
+        return pd.DataFrame(sh.get_all_records())
+    except Exception as e:
+        st.error(f"Erro ao conectar no Google Sheets: {e}")
+        return pd.DataFrame()
 
-# --- BANCO DE DADOS DA CARTEIRA ---
-# Na prática, isso poderia vir de um Excel ou SQL
-minha_carteira = {
-    "HGLG11": {"quantidade": 10, "preco_medio": 160.00},
-    "KNRI11": {"quantidade": 15, "preco_medio": 155.00},
-    "BTLG11": {"quantidade": 20, "preco_medio": 98.50}
-}
+# --- CÓDIGO DO DASHBOARD ---
+st.title("📊 Minha Carteira Automática (Via Google Sheets)")
 
-st.title("🚀 Dashboard Inteligente de FIIs")
+df_carteira = buscar_dados_sheets()
 
-# --- CÁLCULOS E EXIBIÇÃO ---
-dados_finais = []
-
-for ticker_bruto, info_pessoal in minha_carteira.items():
-    ticker = f"{ticker_bruto}.SA"
-    fii = yf.Ticker(ticker)
-    preco_atual = fii.history(period="1d")['Close'].iloc[-1]
-    
-    # Cálculos de Performance
-    valor_investido = info_pessoal['quantidade'] * info_pessoal['preco_medio']
-    valor_atual = info_pessoal['quantidade'] * preco_atual
-    lucro_prejuizo = valor_atual - valor_investido
-    porcentagem = (lucro_prejuizo / valor_investido) * 100
-    
-    # Indicadores Extra (Scraping)
-    extra = buscar_indicadores(ticker_bruto)
-    
-    dados_finais.append({
-        "Fundo": ticker_bruto,
-        "Qtd": info_pessoal['quantidade'],
-        "Preço Médio": f"R$ {info_pessoal['preco_medio']:.2f}",
-        "Cotação Atual": f"R$ {preco_atual:.2f}",
-        "P/VP": extra['P/VP'],
-        "Resultado (R$)": f"R$ {lucro_prejuizo:.2f}",
-        "Resultado (%)": f"{porcentagem:.2f}%"
-    })
-
-# --- INTERFACE ---
-df = pd.DataFrame(dados_finais)
-
-# Filtro de Alerta: FIIs com P/VP abaixo de 1.0 (Baratos)
-st.subheader("⚠️ Oportunidades (P/VP < 1.0)")
-oportunidades = df[df['P/VP'].astype(float) < 1.0]
-st.dataframe(oportunidades, use_container_width=True)
-
-st.divider()
-
-st.subheader("📊 Minha Performance")
-st.table(df)
-
-# Gráfico de Composição da Carteira
-st.write("### Divisão do Patrimônio")
-st.bar_chart(df.set_index('Fundo')['Resultado (%)'])
+if not df_carteira.empty:
+    # ... aqui continua a lógica de cálculo que criamos antes ...
+    st.success("Dados carregados com sucesso da nuvem!")
+    st.dataframe(df_carteira)
+else:
+    st.warning("Aguardando conexão com a planilha...")
